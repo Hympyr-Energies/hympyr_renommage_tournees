@@ -4,6 +4,35 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Renommage tournées</title>
+<script>
+/* Nom affiché de l'outil : renommable par un administrateur du portail (Administration > Outils).
+   Lu sans connexion par la fonction publique portail_nom_outil() (elle ne renvoie que ce nom).
+   Le dernier nom connu est gardé dans le navigateur pour l'afficher dès l'ouverture, sans clignement.
+   Usage : <span data-nom-outil>…</span> dans la page, window.HYM_NOM_OUTIL() dans le code. */
+(function () {
+  var SLUG = 'renommage_tournees', DEFAUT = 'Renommage tournées', SUFFIXE = '';
+  var SB_URL = 'https://cmvkijtlkzfwnzipgstc.supabase.co', SB_KEY = 'sb_publishable_Q8HVlAGCLlpF5P3Gqsa_9g_fKDDD0bZ'; // clé publique par conception
+  var CLE = 'hym.nom-outil.' + SLUG, nom = DEFAUT;
+  try { nom = localStorage.getItem(CLE) || DEFAUT; } catch (e) {}
+  function appliquer() {
+    document.title = nom + SUFFIXE;
+    var l = document.querySelectorAll('[data-nom-outil]');
+    for (var i = 0; i < l.length; i++) l[i].textContent = nom;
+  }
+  window.HYM_NOM_OUTIL = function () { return nom; };
+  document.title = nom + SUFFIXE;
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', appliquer); else appliquer();
+  if (!window.fetch) return;
+  fetch(SB_URL + '/rest/v1/rpc/portail_nom_outil', {
+    method: 'POST', headers: { apikey: SB_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ p_slug: SLUG })
+  }).then(function (r) { return r.ok ? r.json() : null; }).then(function (n) {
+    if (typeof n !== 'string' || !n.trim() || n === nom) return;
+    nom = n.trim();
+    try { localStorage.setItem(CLE, nom); } catch (e) {}
+    if (document.readyState !== 'loading') appliquer();
+  }).catch(function () { /* hors ligne ou script SQL pas encore exécuté : on garde le nom connu */ });
+})();
+</script>
 <meta name="theme-color" content="#073D27">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -625,7 +654,7 @@ addEventListener('keydown',e=>{if(e.key==='Escape')closeTicket()});
 $('#ticketForm').onsubmit=e=>{e.preventDefault();const s=$('#tSubject'),b=$('#tBody');
   if(s.value.trim().length<3){s.classList.add('bad');s.focus();return}s.classList.remove('bad');
   const body=`${b.value.trim()}\n\nOutil : renommage des synthèses de tournée (Hympyr Energies)\nFichiers chargés : ${files.length}`;
-  location.href=`mailto:${TICKET_EMAIL}?subject=${encodeURIComponent('[Renommage tournées] '+s.value.trim())}&body=${encodeURIComponent(body)}`;
+  location.href=`mailto:${TICKET_EMAIL}?subject=${encodeURIComponent('['+(window.HYM_NOM_OUTIL?HYM_NOM_OUTIL():'Renommage tournées')+'] '+s.value.trim())}&body=${encodeURIComponent(body)}`;
   closeTicket();toast('Votre messagerie s\'ouvre avec le ticket prêt')};
 
 /* ---------- boot ---------- */
