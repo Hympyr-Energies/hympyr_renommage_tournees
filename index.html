@@ -39,6 +39,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
   (function(){try{var t=JSON.parse(localStorage.getItem('hy-theme'));if(t!=='light'&&t!=='dark'){t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'}document.documentElement.dataset.theme=t}catch(e){}})();
 </script>
@@ -243,7 +244,7 @@ main{position:relative;z-index:1;width:100%;max-width:1120px;margin:0 auto;paddi
 .modal .form{display:flex;flex-direction:column;gap:18px;margin-top:20px}
 .modal label{display:flex;flex-direction:column;gap:8px;font-size:13px;font-weight:500}
 .modal textarea{min-height:120px;padding:14px;resize:vertical;font-weight:400;line-height:1.55}
-.modal .field-in{font-weight:400;color:var(--text)}
+.modal .field-in{font-weight:400;color:var(--text);font-family:inherit}
 .mhead{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}
 .mhead p{color:var(--muted);font-size:13.5px;margin-top:6px}
 
@@ -375,18 +376,23 @@ main{position:relative;z-index:1;width:100%;max-width:1120px;margin:0 auto;paddi
 <div class="overlay" id="ticketOverlay" hidden>
   <div class="modal glass" role="dialog" aria-modal="true" aria-labelledby="tTitle">
     <div class="mhead"><div><span class="label">Support</span><h2 id="tTitle" style="margin-top:6px">Envoyer un ticket</h2>
-      <p>Un nom mal lu, un document non reconnu ou une idée d'amélioration : décrivez-le, votre messagerie s'ouvre avec le message prêt à envoyer.</p></div>
+      <p>Un nom mal lu, un document non reconnu ou une idée d'amélioration : décrivez-le, le ticket arrive dans l'administration du portail Hympyr.</p></div>
       <button class="icon-btn" data-close aria-label="Fermer"><svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
     <form class="form" id="ticketForm" novalidate>
+      <label>Type de demande<select class="field-in" id="tType"><option value="question">Question</option><option value="erreur">Erreur</option><option value="suggestion">Suggestion</option></select></label>
       <label>Sujet<input class="field-in" id="tSubject" maxlength="120" placeholder="Résumez la demande en une phrase"></label>
       <label>Message<textarea class="field-in" id="tBody" maxlength="3000" placeholder="Fichier concerné, ce que vous attendiez, ce qui s'est passé."></textarea></label>
-      <button class="btn mag" type="submit">Préparer l'e-mail</button>
+      <button class="btn mag" type="submit" id="tSend">Envoyer le ticket</button>
     </form>
   </div>
 </div>
 
 <script>
-const TICKET_EMAIL='';
+/* Tickets : envoyés dans la table portail_tickets, lue par Administration > Tickets du portail.
+   Même client supabase-js, même origine et même clé de stockage que le portail : la session ouverte au portail sert ici.
+   La clé « publishable » est publique par conception ; l'écriture est protégée par la RLS (auteur = personne connectée). */
+const SB_URL='https://cmvkijtlkzfwnzipgstc.supabase.co',SB_KEY='sb_publishable_Q8HVlAGCLlpF5P3Gqsa_9g_fKDDD0bZ';
+let sb=null;try{if(window.supabase)sb=window.supabase.createClient(SB_URL,SB_KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:false}})}catch(e){sb=null}
 const MAX=50;
 const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>[...r.querySelectorAll(s)];
 const root=document.documentElement, EASE='cubic-bezier(.22,1,.36,1)';
@@ -657,11 +663,21 @@ $('#ticketBtn').onclick=()=>{ov.hidden=false;ov.animate([{opacity:0},{opacity:1}
 async function closeTicket(){if(ov.hidden||ov._c)return;ov._c=1;$('.modal',ov).animate([{opacity:1},{opacity:0,transform:'translateY(12px) scale(.98)'}],{duration:220,fill:'forwards'});await ov.animate([{opacity:1},{opacity:0}],{duration:260,easing:'cubic-bezier(.4,0,1,1)',fill:'forwards'}).done;ov.hidden=true;ov._c=0;ov.getAnimations().forEach(a=>a.cancel());$('.modal',ov).getAnimations().forEach(a=>a.cancel())}
 ov.addEventListener('click',e=>{if(e.target===ov||e.target.closest('[data-close]'))closeTicket()});
 addEventListener('keydown',e=>{if(e.key==='Escape')closeTicket()});
-$('#ticketForm').onsubmit=e=>{e.preventDefault();const s=$('#tSubject'),b=$('#tBody');
+$('#ticketForm').onsubmit=async e=>{e.preventDefault();const s=$('#tSubject'),b=$('#tBody'),btn=$('#tSend');
   if(s.value.trim().length<3){s.classList.add('bad');s.focus();return}s.classList.remove('bad');
-  const body=`${b.value.trim()}\n\nOutil : renommage des synthèses de tournée (Hympyr Energies)\nFichiers chargés : ${files.length}`;
-  location.href=`mailto:${TICKET_EMAIL}?subject=${encodeURIComponent('['+(window.HYM_NOM_OUTIL?HYM_NOM_OUTIL():'Renommage tournées')+'] '+s.value.trim())}&body=${encodeURIComponent(body)}`;
-  closeTicket();toast('Votre messagerie s\'ouvre avec le ticket prêt')};
+  if(b.value.trim().length<5){b.classList.add('bad');b.focus();return}b.classList.remove('bad');
+  const message=`${b.value.trim()}\n\nFichiers chargés : ${files.length}`;
+  btn.disabled=true;btn.textContent='Envoi en cours';
+  let ok=false,connecte=false;
+  try{
+    const {data}=sb?await sb.auth.getSession():{data:{}};const u=data&&data.session&&data.session.user;
+    if(u){connecte=true;const {error}=await sb.from('portail_tickets').insert({type:$('#tType').value,sujet:s.value.trim().slice(0,140),message:message.slice(0,4000),outil_slug:'renommage_tournees',user_id:u.id,auteur_email:u.email});ok=!error}
+  }catch(err){ok=false}
+  btn.disabled=false;btn.textContent='Envoyer le ticket';
+  // Pas de redirection automatique : les PDF chargés ne sont qu'en mémoire et seraient perdus.
+  if(!connecte){toast('Connectez-vous au portail Hympyr (bouton en haut à droite), puis renvoyez le ticket','alert');return}
+  if(!ok){toast('Envoi impossible pour le moment. Vérifiez votre connexion puis réessayez.','alert');return}
+  s.value='';b.value='';closeTicket();toast('Ticket envoyé à l\'administration Hympyr')};
 
 /* ---------- boot ---------- */
 syncTheme();renderNav();renderFormat();renderList();updateCounts();stagger($('#v-importer'));
